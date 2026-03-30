@@ -30,7 +30,7 @@ def db_init():
     try: run_query("ALTER TABLE posts ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
     except: pass
 
-# --- BROADCASTER (CLEAN CHANNEL FORMAT) ---
+# --- BROADCASTER (PROFESSIONAL CHANNEL FORMAT) ---
 async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID or not update.message.photo: return
 
@@ -47,12 +47,13 @@ async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_T
 
     if CHANNEL_ID:
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Unlock Selection", callback_data=f"GET_{post_id}")]])
-        # Removed all emojis - Simple Professional Layout
+        
+        # High-end Channel Format
         channel_msg = (
-            f"Game #{post_id}\n"
+            f"🏆 **Game #{post_id}**\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"Status: Active\n"
-            f"Problem? DM @R1cta"
+            f"📍 Get the game at @Ricta_Terminal_bot\n"
+            f"💎 For access dm @R1cta"
         )
         try:
             await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=channel_msg, reply_markup=keyboard, parse_mode="Markdown")
@@ -67,7 +68,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if u.id == ADMIN_ID:
         await update.message.reply_text("Terminal Online.\nUse /admin for controls.")
     else:
-        # Removed the red emoji
         await update.message.reply_text("RICTA TERMINAL\nAccess restricted to approved partners.\n\nTo request access, use /addme.")
 
 async def add_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -131,7 +131,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         run_query("INSERT OR IGNORE INTO claims (user_id, post_id, claimed_at) VALUES (?, ?, ?)", (u_id, post_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
         await query.answer()
         
-        # Format for DM: "Game #ID", Selection: Text, dm @R1cta
+        # DM format: No emojis, very clean.
         dm_caption = (
             f"Game #{post_id}\n\n"
             f"Selection: {post[0]}\n\n"
