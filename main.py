@@ -47,36 +47,30 @@ async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_T
 
     if CHANNEL_ID:
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📩 Unlock Selection", callback_data=f"GET_{post_id}")]])
-        channel_msg = (
-            f"🎯 **Game #{post_id}**\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"🔹 **Status:** Active\n"
-            f"🔹 **Problem? DM:** @R1cta\n\n"
-            f"⚠️ *Available for {EXPIRY_MINUTES} mins.*"
-        )
+        channel_msg = f"🎯 **Game #{post_id}**\n━━━━━━━━━━━━━━━\n🔹 **Status:** Active\n🔹 **Problem? DM:** @R1cta\n\n⚠️ *Available for {EXPIRY_MINUTES} mins.*"
         try:
             await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=channel_msg, reply_markup=keyboard, parse_mode="Markdown")
-            await update.message.reply_text(f"✅ Game #{post_id} Live.")
+            await update.message.reply_text(f"🚀 **Game #{post_id}** Live.")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
 
-# --- USER COMMANDS ---
+# --- ADMIN COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     run_query("INSERT INTO users(user_id, full_name, username) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET full_name=excluded.full_name, username=excluded.username", (u.id, u.full_name, u.username))
     if u.id == ADMIN_ID:
         await update.message.reply_text("⚡ **TERMINAL ONLINE**\nUse `/admin` for controls.")
     else:
-        await update.message.reply_text("🚫 **RICTA TERMINAL**\nAccess restricted to approved partners.\n\nTo request access, use `/addme`.")
+        await update.message.reply_text("🚫 **RICTA TERMINAL**\nAccess restricted to approved partners.\n\nTo apply, contact @R1cta.")
 
-async def add_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    u = update.effective_user
-    await update.message.reply_text(f"📋 **YOUR TERMINAL ID:** `{u.id}`\n\nSend this ID to @R1cta to request authorization.", parse_mode="Markdown")
-
-# --- ADMIN TOOLS ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    msg = "**ADMIN TOOLS**\n\n👤 `/approve ID`, `/remove ID`, `/list`\n📊 `/report`, `/clearreport`\n📝 `/edit ID Text`, `/delete ID`, `/setid ID`"
+    msg = (
+        "🛠 **ADMIN CONTROL PANEL**\n\n"
+        "👤 **Partners:** `/approve ID`, `/remove ID`, `/list`\n"
+        "📊 **Data:** `/report`, `/clearreport`\n"
+        "📝 **Posts:** `/edit ID Text`, `/delete ID`, `/setid ID`"
+    )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -92,7 +86,7 @@ async def remove_partner(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def delete_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID or not context.args: return
     run_query("DELETE FROM posts WHERE post_id = ?", (context.args[0],))
-    await update.message.reply_text(f"🗑 Post #{context.args[0]} deleted.")
+    await update.message.reply_text(f"🗑 Game #{context.args[0]} deleted from DB.")
 
 async def edit_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID or len(context.args) < 2: return
@@ -114,9 +108,8 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- CALLBACK ---
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    u_id = query.from_user.id
-    if not run_query("SELECT 1 FROM whitelist WHERE user_id = ?", (u_id,), fetch_one=True):
-        await query.answer("❌ Access Denied. Contact @R1cta", show_alert=True)
+    if not run_query("SELECT 1 FROM whitelist WHERE user_id = ?", (query.from_user.id,), fetch_one=True):
+        await query.answer("❌ Access Denied. @R1cta", show_alert=True)
         return
     
     post_id = int(query.data.split("_")[1])
@@ -127,20 +120,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if datetime.now() > created_dt + timedelta(minutes=EXPIRY_MINUTES):
             await query.answer("⌛ Selection Expired.", show_alert=True)
             return
-        run_query("INSERT OR IGNORE INTO claims (user_id, post_id, claimed_at) VALUES (?, ?, ?)", (u_id, post_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+        run_query("INSERT OR IGNORE INTO claims (user_id, post_id, claimed_at) VALUES (?, ?, ?)", (query.from_user.id, post_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
         await query.answer()
-        await context.bot.send_photo(chat_id=u_id, photo=post[1], caption=f"📁 **Data Sheet #{post_id}**\n\n✅ **Selection:** {post[0]}\n\n🤝 Settlement: @R1cta", parse_mode="Markdown")
+        await context.bot.send_photo(chat_id=query.from_user.id, photo=post[1], caption=f"📁 **Data Sheet #{post_id}**\n\n✅ **Selection:** {post[0]}\n\n🤝 Settlement: @R1cta", parse_mode="Markdown")
 
-# --- MAIN ---
 def main():
     db_init()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("addme", add_me))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("approve", approve))
-    app.add_handler(CommandHandler("remove", remove_partner))
-    app.add_handler(CommandHandler("delete", delete_post))
+    app.add_handler(CommandHandler("remove", remove_partner)) # Remove Partner
+    app.add_handler(CommandHandler("delete", delete_post)) # Delete Post Data
     app.add_handler(CommandHandler("edit", edit_post))
     app.add_handler(CommandHandler("list", list_partners))
     app.add_handler(CommandHandler("report", report))
