@@ -52,7 +52,7 @@ async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_T
         channel_msg = (
             f"🏆 **Game #{post_id}**\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"📍 Get the game at @@RictaTerminalbot\n"
+            f"📍 Get the game at @RictaTerminalbot\n"
             f"💎 For access dm @R1cta"
         )
         try:
@@ -77,8 +77,22 @@ async def add_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- ADMIN TOOLS ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    msg = "ADMIN TOOLS\n\n/approve ID\n/remove ID\n/list\n/report\n/clearreport\n/edit ID Text\n/delete ID\n/setid ID"
-    await update.message.reply_text(msg)
+    msg = (
+        "⚙️ **TERMINAL CONTROL**\n"
+        "━━━━━━━━━━━━━━━\n"
+        "👤 **USER MANAGEMENT**\n"
+        "• `/approve ID` - Authorize partner\n"
+        "• `/remove ID`  - Revoke access\n"
+        "• `/list`       - View all partners\n\n"
+        "🎮 **GAME MANAGEMENT**\n"
+        "• `/edit ID Text` - Change selection\n"
+        "• `/delete ID`    - Wipe game data\n"
+        "• `/setid ID`     - Reset counter\n\n"
+        "📊 **DATA**\n"
+        "• `/report`      - Recent claims\n"
+        "• `/clearstats`  - Wipe activity logs"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID or not context.args: return
@@ -143,20 +157,32 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     db_init()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+    
+    # User Commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("addme", add_me))
+    
+    # Admin - Control
     app.add_handler(CommandHandler("admin", admin_panel))
+    
+    # Admin - Partner Management
     app.add_handler(CommandHandler("approve", approve))
     app.add_handler(CommandHandler("remove", remove_partner))
-    app.add_handler(CommandHandler("delete", delete_post))
-    app.add_handler(CommandHandler("edit", edit_post))
     app.add_handler(CommandHandler("list", list_partners))
-    app.add_handler(CommandHandler("report", report))
-    app.add_handler(CommandHandler("clearreport", lambda u, c: run_query("DELETE FROM claims")))
+    
+    # Admin - Game Management
+    app.add_handler(CommandHandler("edit", edit_post))
+    app.add_handler(CommandHandler("delete", delete_post))
     app.add_handler(CommandHandler("setid", lambda u, c: run_query("UPDATE meta SET value = ? WHERE key = 'current_post_id'", (c.args[0],)) if c.args else None))
-    app.add_handler(CommandHandler("postid", lambda u, c: u.message.reply_text(f"Current ID: {run_query('SELECT value FROM meta WHERE key = ?', ('current_post_id',), fetch_one=True)[0]}")))
+    
+    # Admin - Stats
+    app.add_handler(CommandHandler("report", report))
+    app.add_handler(CommandHandler("clearstats", lambda u, c: run_query("DELETE FROM claims")))
+    
+    # Media & Callbacks
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_broadcast))
     app.add_handler(CallbackQueryHandler(button_callback))
+    
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
