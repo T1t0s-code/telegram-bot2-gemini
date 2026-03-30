@@ -56,11 +56,11 @@ async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_T
         )
         try:
             await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=channel_msg, reply_markup=keyboard, parse_mode="Markdown")
-            await update.message.reply_text(f"🚀 **Game #{post_id}** Live.")
+            await update.message.reply_text(f"✅ Game #{post_id} Live.")
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {e}")
 
-# --- COMMANDS ---
+# --- USER COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     run_query("INSERT INTO users(user_id, full_name, username) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET full_name=excluded.full_name, username=excluded.username", (u.id, u.full_name, u.username))
@@ -71,12 +71,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
-    msg = (
-        f"📋 **YOUR TERMINAL ID:** `{u.id}`\n\n"
-        "Send this ID to @R1cta to request authorization."
-    )
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(f"📋 **YOUR TERMINAL ID:** `{u.id}`\n\nSend this ID to @R1cta to request authorization.", parse_mode="Markdown")
 
+# --- ADMIN TOOLS ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     msg = "**ADMIN TOOLS**\n\n👤 `/approve ID`, `/remove ID`, `/list`\n📊 `/report`, `/clearreport`\n📝 `/edit ID Text`, `/delete ID`, `/setid ID`"
@@ -134,6 +131,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         await context.bot.send_photo(chat_id=u_id, photo=post[1], caption=f"📁 **Data Sheet #{post_id}**\n\n✅ **Selection:** {post[0]}\n\n🤝 Settlement: @R1cta", parse_mode="Markdown")
 
+# --- MAIN ---
 def main():
     db_init()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
