@@ -52,7 +52,7 @@ async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_T
         channel_msg = (
             f"🏆 **Game #{post_id}**\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"📍 Get the game at @Ricta_Terminal_bot\n"
+            f"📍 Get the game at @@RictaTerminalbot\n"
             f"💎 For access dm @R1cta"
         )
         try:
