@@ -190,7 +190,30 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ User {uid} approved.")
     try: await context.bot.send_message(chat_id=uid, text="✅ You are approved! You will receive future tips.")
     except: pass
+        
+async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
 
+    help_text = (
+        "🛠 **Admin Control Panel**\n\n"
+        "📢 **Broadcasting**\n"
+        "• Send a **Photo + Caption** to start a new Game.\n"
+        "• `/broadcast [text]` - Send a text-only alert to everyone.\n\n"
+        "📝 **Management**\n"
+        "• `/edit [ID] [New Text]` - Change the tip for a specific Game.\n"
+        "• `/setpostid [Number]` - Change the next Game's number.\n"
+        "• `/cleartext` - Emergency wipe of the active tip memory.\n\n"
+        "👥 **Users & Billing**\n"
+        "• `/report` - See who unlocked tips in the last 24h.\n"
+        "• `/approve [ID]` - Whitelist a user manually.\n"
+        "• `/remove [ID]` - Kick a user from the whitelist.\n"
+        "• `/list` - See all whitelisted users.\n\n"
+        "🆔 Your Admin ID: `{}`"
+    ).format(update.effective_user.id)
+
+    await update.message.reply_text(help_text, parse_mode="Markdown")
+    
 # --- MAIN ---
 def main():
     db_init()
@@ -204,6 +227,7 @@ def main():
     app.add_handler(CommandHandler("edit", edit_tip))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(CommandHandler("admin", admin_help))
     
     print("Bot is running...")
     app.run_polling()
