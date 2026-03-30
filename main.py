@@ -46,7 +46,13 @@ async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_T
               (post_id, caption, photo_id, now_str))
 
     if CHANNEL_ID:
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📩 Unlock Selection", callback_data=f"GET_{post_id}")]])
+       bot_username = (await context.bot.get_me()).username
+keyboard = InlineKeyboardMarkup([[
+    InlineKeyboardButton(
+        "📩 Unlock Selection", 
+        url=f"https://t.me/{bot_username}?start=GET_{post_id}"
+    )
+]])
         channel_msg = f"🎯 **Game #{post_id}**\n━━━━━━━━━━━━━━━\n🔹 **Status:** Active\n🔹 **Problem? DM:** @R1cta\n\n⚠️ *Available for {EXPIRY_MINUTES} mins.*"
         try:
             await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=channel_msg, reply_markup=keyboard, parse_mode="Markdown")
@@ -55,13 +61,48 @@ async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text(f"❌ Error: {e}")
 
 # --- ADMIN COMMANDS ---
+# --- UPDATE YOUR start FUNCTION ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
+    # Save user data as always
     run_query("INSERT INTO users(user_id, full_name, username) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET full_name=excluded.full_name, username=excluded.username", (u.id, u.full_name, u.username))
+    
+    # CHECK IF THE USER IS CLICKING A "GET" LINK
+    if context.args and context.args[0].startswith("GET_"):
+        # Security Check
+        if not run_query("SELECT 1 FROM whitelist WHERE user_id = ?", (u.id,), fetch_one=True):
+            await update.message.reply_text("❌ Access Denied. Contact @R1cta")
+            return
+
+        # Extract the Post ID from GET_15
+        post_id = context.args[0].split("_")[1]
+        post = run_query("SELECT tip_text, photo_id, created_at FROM posts WHERE post_id = ?", (post_id,), fetch_one=True)
+        
+        if post:
+            # Expiry Check
+            created_dt = datetime.strptime(post[2], '%Y-%m-%d %H:%M:%S')
+            if datetime.now() > created_dt + timedelta(minutes=EXPIRY_MINUTES):
+                await update.message.reply_text("⌛ This selection has expired.")
+                return
+
+            # Log the claim
+            run_query("INSERT OR IGNORE INTO claims (user_id, post_id, claimed_at) VALUES (?, ?, ?)", 
+                      (u.id, post_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            
+            # Send the Game
+            await context.bot.send_photo(
+                chat_id=u.id, 
+                photo=post[1], 
+                caption=f"📁 **Data Sheet #{post_id}**\n\n✅ **Selection:** {post[0]}\n\n🤝 Settlement: @R1cta", 
+                parse_mode="Markdown"
+            )
+            return
+
+    # REGULAR START MESSAGE (For Admin or New Users)
     if u.id == ADMIN_ID:
-        await update.message.reply_text("⚡ **TERMINAL ONLINE**\nUse `/admin` for controls.")
+        await update.message.reply_text("⚡ **TERMINAL ONLINE**\nUse `/admin` for commands.")
     else:
-        await update.message.reply_text("🚫 **RICTA TERMINAL**\nAccess restricted to approved partners.\n\nTo apply, contact @R1cta.")
+        await update.message.reply_text("🚫 **RICTA TERMINAL**\nAccess limited to verified partners.\n\nTo request access, contact @R1cta.")
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
