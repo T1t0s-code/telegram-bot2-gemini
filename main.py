@@ -213,6 +213,29 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ).format(update.effective_user.id)
 
     await update.message.reply_text(help_text, parse_mode="Markdown")
+
+async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+
+    # This query looks at the whitelist and tries to find a matching name in the users table
+    rows = db_query("""
+        SELECT w.user_id, u.full_name, u.username 
+        FROM whitelist w 
+        LEFT JOIN users u ON w.user_id = u.user_id
+    """, fetchall=True)
+
+    if not rows:
+        await update.message.reply_text("The whitelist is currently empty.")
+        return
+
+    text = "📋 **Whitelisted Users:**\n"
+    for uid, name, username in rows:
+        display_name = name if name else "Unknown Name"
+        display_user = f"(@{username})" if username else ""
+        text += f"• `{uid}` - {display_name} {display_user}\n"
+
+    await update.message.reply_text(text, parse_mode="Markdown")    
     
 # --- MAIN ---
 def main():
@@ -228,6 +251,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(CommandHandler("admin", admin_help))
+    app.add_handler(CommandHandler("list", list_users))
     
     print("Bot is running...")
     app.run_polling()
