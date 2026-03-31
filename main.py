@@ -43,7 +43,7 @@ async def start_expiry_monitor(app):
                 run_query("UPDATE posts SET is_expired = 1 WHERE post_id = ?", (p_id,))
                 if CHANNEL_ID and m_id:
                     try:
-                        text = f"🏆 **Game #{p_id}**\n━━━━━━━━━━━━━━━\nStatus: **🔴EXPIRED**\n💎For access dm @R1cta"
+                        text = f"🏆 **Game #{p_id}**\n━━━━━━━━━━━━━━━\n🔰Status: **EXPIRED**\n💎For access dm @R1cta"
                         await app.bot.edit_message_caption(chat_id=CHANNEL_ID, message_id=m_id, caption=text, reply_markup=None, parse_mode="Markdown")
                     except: pass
         except: pass
@@ -61,7 +61,7 @@ async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_T
     
     if CHANNEL_ID:
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Unlock Selection", callback_data=f"GET_{post_id}")]])
-        msg = f"🏆 **Game #{post_id}**\n━━━━━━━━━━━━━━━\nStatus: **🟢ACTIVE**\nGet the game at @RictaTerminalbot\n💎For access dm @R1cta"
+        msg = f"🏆 **Game #{post_id}**\n━━━━━━━━━━━━━━━\n🔰Status: **ACTIVE**\n🔗Get the game at @RictaTerminalbot\n💎For access dm @R1cta"
         try:
             sent = await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=msg, reply_markup=keyboard, parse_mode="Markdown")
             run_query("INSERT INTO posts (post_id, tip_text, photo_id, channel_msg_id, created_at) VALUES (?, ?, ?, ?, ?)", 
