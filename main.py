@@ -153,6 +153,51 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await context.bot.send_photo(chat_id=u_id, photo=post[1], caption=dm_caption)
 
+
+
+# --- PARTNER DATA RETRIEVAL ---
+async def send_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    
+    # 1. Access Check
+    if not run_query("SELECT 1 FROM whitelist WHERE user_id = ?", (u.id,), fetch_one=True):
+        await update.message.reply_text("Access restricted. Use /addme to request authorization.")
+        return
+
+    # 2. Argument Check (Did they provide a number?)
+    if not context.args:
+        await update.message.reply_text("Usage: `/send [number]` (e.g., `/send 15`)", parse_mode="Markdown")
+        return
+
+    game_id = context.args[0]
+    
+    # 3. Database Lookup
+    post = run_query("SELECT tip_text, photo_id, created_at FROM posts WHERE post_id = ?", (game_id,), fetch_one=True)
+    
+    if post:
+        # 4. Expiry Check (120 minutes)
+        created_dt = datetime.strptime(post[2], '%Y-%m-%d %H:%M:%S')
+        if datetime.now() > created_dt + timedelta(minutes=EXPIRY_MINUTES):
+            await update.message.reply_text(f"⌛ Game #{game_id} has expired.")
+            return
+
+        # 5. Log the Activity (for your /report)
+        run_query("INSERT OR IGNORE INTO claims (user_id, post_id, claimed_at) VALUES (?, ?, ?)", 
+                  (u.id, game_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+
+        # 6. Send Clean Professional Format
+        caption = (
+            f"Game #{game_id}\n\n"
+            f"Selection: {post[0]}\n\n"
+            f"Questions? dm @R1cta"
+        )
+        await context.bot.send_photo(chat_id=u.id, photo=post[1], caption=caption)
+    else:
+        await update.message.reply_text(f"❌ Game #{game_id} not found in database.")
+
+# --- REGISTRATION (Add this inside main() function) ---
+app.add_handler(CommandHandler("send", send_game))
+
 # --- MAIN ---
 def main():
     db_init()
