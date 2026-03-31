@@ -33,148 +33,146 @@ def db_init():
     try: run_query("ALTER TABLE posts ADD COLUMN is_expired INTEGER DEFAULT 0")
     except: pass
 
-# --- FIXED AUTO-EXPIRY MONITOR (No JobQueue Required) ---
+# --- AUTO-EXPIRY (CLEAN LOGIC) ---
 async def start_expiry_monitor(app):
-    """Background loop that checks for expired games every 60 seconds."""
     while True:
         try:
-            # Find games older than 120 mins that aren't marked expired yet
-            expiry_limit = (datetime.now() - timedelta(minutes=EXPIRY_MINUTES)).strftime('%Y-%m-%d %H:%M:%S')
-            expired_posts = run_query(
-                "SELECT post_id, channel_msg_id FROM posts WHERE is_expired = 0 AND created_at < ?", 
-                (expiry_limit,), 
-                fetch_all=True
-            )
-            
-            for post_id, msg_id in expired_posts:
-                run_query("UPDATE posts SET is_expired = 1 WHERE post_id = ?", (post_id,))
-                if CHANNEL_ID and msg_id:
+            limit = (datetime.now() - timedelta(minutes=EXPIRY_MINUTES)).strftime('%Y-%m-%d %H:%M:%S')
+            expired = run_query("SELECT post_id, channel_msg_id FROM posts WHERE is_expired = 0 AND created_at < ?", (limit,), fetch_all=True)
+            for p_id, m_id in expired:
+                run_query("UPDATE posts SET is_expired = 1 WHERE post_id = ?", (p_id,))
+                if CHANNEL_ID and m_id:
                     try:
-                        new_text = (
-                            f"🏆 **Game #{post_id}**\n"
-                            f"━━━━━━━━━━━━━━━\n"
-                            f"📍 Status: **EXPIRED**\n"
-                            f"💎 For next access dm @R1cta"
-                        )
-                        await app.bot.edit_message_caption(
-                            chat_id=CHANNEL_ID,
-                            message_id=msg_id,
-                            caption=new_text,
-                            reply_markup=None,
-                            parse_mode="Markdown"
-                        )
-                    except Exception: pass
-        except Exception: pass
+                        text = f"🏆 **Game #{p_id}**\n━━━━━━━━━━━━━━━\nStatus: **EXPIRED**\nFor access dm @R1cta"
+                        await app.bot.edit_message_caption(chat_id=CHANNEL_ID, message_id=m_id, caption=text, reply_markup=None, parse_mode="Markdown")
+                    except: pass
+        except: pass
         await asyncio.sleep(60)
 
-# --- BROADCASTER ---
+# --- CHANNEL BROADCASTER ---
 async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID or not update.message.photo: return
+    
     photo_id = update.message.photo[-1].file_id
     caption = (update.message.caption or "No Selection").strip()
     res = run_query("SELECT value FROM meta WHERE key = 'current_post_id'", fetch_one=True)
     post_id = int(res[0]) + 1
     run_query("UPDATE meta SET value = ? WHERE key = 'current_post_id'", (str(post_id),))
-    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     if CHANNEL_ID:
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Unlock Selection", callback_data=f"GET_{post_id}")]])
-        channel_msg = (
-            f"🏆 **Game #{post_id}**\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"📍 Status: **ACTIVE**\n"
-            f"📍 Use button or `/send {post_id}` at @Ricta_Terminal_bot\n"
-            f"💎 For access dm @R1cta"
-        )
+        msg = f"🏆 **Game #{post_id}**\n━━━━━━━━━━━━━━━\nStatus: **ACTIVE**\nGet the game at @Ricta_Terminal_bot\nFor access dm @R1cta"
         try:
-            sent = await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=channel_msg, reply_markup=keyboard, parse_mode="Markdown")
+            sent = await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=msg, reply_markup=keyboard, parse_mode="Markdown")
             run_query("INSERT INTO posts (post_id, tip_text, photo_id, channel_msg_id, created_at) VALUES (?, ?, ?, ?, ?)", 
-                      (post_id, caption, photo_id, sent.message_id, now_str))
-            await update.message.reply_text(f"Game #{post_id} Live.")
+                      (post_id, caption, photo_id, sent.message_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            await update.message.reply_text(f"✅ **Game #{post_id} Live in Channel.**")
         except Exception as e:
-            await update.message.reply_text(f"Error: {e}")
+            await update.message.reply_text(f"❌ Error: {e}")
 
-# --- LOGIC ---
-async def deliver_game(user_id, game_id, context):
-    post = run_query("SELECT tip_text, photo_id, created_at, is_expired FROM posts WHERE post_id = ?", (game_id,), fetch_one=True)
-    if post:
-        if post[3] == 1: return f"Game #{game_id} has expired."
-        run_query("INSERT OR IGNORE INTO claims (user_id, post_id, claimed_at) VALUES (?, ?, ?)", 
-                  (user_id, game_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-        dm_caption = f"Game #{game_id}\n\nSelection: {post[0]}\n\ndm @R1cta"
-        await context.bot.send_photo(chat_id=user_id, photo=post[1], caption=dm_caption)
-        return None
-    return f"Game #{game_id} not found."
+# --- DELIVERY ENGINE ---
+async def deliver(user_id, game_id, context):
+    post = run_query("SELECT tip_text, photo_id, is_expired FROM posts WHERE post_id = ?", (game_id,), fetch_one=True)
+    if not post: return "Game not found."
+    if post[2] == 1: return f"Game #{game_id} has expired."
+    
+    run_query("INSERT OR IGNORE INTO claims (user_id, post_id, claimed_at) VALUES (?, ?, ?)", (user_id, game_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    caption = f"Game #{game_id}\n\nSelection: {post[0]}\n\ndm @R1cta"
+    await context.bot.send_photo(chat_id=user_id, photo=post[1], caption=caption)
+    return None
 
-# --- COMMANDS ---
+# --- USER COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     run_query("INSERT INTO users(user_id, full_name, username) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET full_name=excluded.full_name, username=excluded.username", (u.id, u.full_name, u.username))
-    await update.message.reply_text("RICTA TERMINAL\nAccess restricted to approved partners.\n\nTo request access, use /addme.")
+    
+    if u.id == ADMIN_ID:
+        await update.message.reply_text("⚡ **TERMINAL ONLINE**\nUse `/admin` for control panel.")
+    else:
+        await update.message.reply_text("RICTA TERMINAL\nAccess restricted to approved partners.\n\nTo request access, use `/addme`.")
 
 async def add_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Your ID: `{update.effective_user.id}`\n\nSend this to @R1cta.", parse_mode="Markdown")
+    await update.message.reply_text(f"Your ID: `{update.effective_user.id}`\n\nSend this to @R1cta to request access.")
 
 async def send_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    u = update.effective_user
-    if not run_query("SELECT 1 FROM whitelist WHERE user_id = ?", (u.id,), fetch_one=True):
-        await update.message.reply_text("Access restricted. Use /addme.")
+    if not run_query("SELECT 1 FROM whitelist WHERE user_id = ?", (update.effective_user.id,), fetch_one=True):
+        await update.message.reply_text("Access denied.")
         return
-    if not context.args:
-        await update.message.reply_text("Usage: /send [number]")
-        return
-    error = await deliver_game(u.id, context.args[0], context)
-    if error: await update.message.reply_text(error)
+    if not context.args: return
+    err = await deliver(update.effective_user.id, context.args[0], context)
+    if err: await update.message.reply_text(err)
 
-async def audit_partners(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- ADMIN COMMANDS ---
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    data = run_query("""
-        SELECT u.full_name, u.user_id, COUNT(DISTINCT c.post_id), GROUP_CONCAT(DISTINCT c.post_id)
-        FROM whitelist w
-        LEFT JOIN users u ON w.user_id = u.user_id
-        LEFT JOIN claims c ON w.user_id = c.user_id
-        GROUP BY w.user_id
-        ORDER BY COUNT(DISTINCT c.post_id) DESC
-    """, fetch_all=True)
-    report_lines = ["📋 **PARTNER AUDIT**\n━━━━━━━━━━━━━━━"]
-    for name, uid, count, games in data:
-        name_str = name if name else "Unknown"
-        game_list = games if games else "None"
-        report_lines.append(f"👤 {name_str} (`{uid}`)\n└ {count} games: {game_list}\n")
-    await update.message.reply_text("\n".join(report_lines), parse_mode="Markdown")
+    msg = (
+        "⚙️ **ADMIN CONTROL PANEL**\n"
+        "━━━━━━━━━━━━━━━\n"
+        "👤 **PARTNERS**\n"
+        "• `/approve ID`\n"
+        "• `/remove ID`\n"
+        "• `/list` - View all access\n\n"
+        "🎮 **GAMES**\n"
+        "• `/edit ID Text`\n"
+        "• `/delete ID`\n"
+        "• `/setid ID` - Reset count\n\n"
+        "📊 **STATS**\n"
+        "• `/report` - Live claim feed\n"
+        "• `/audit` - Partner summary\n"
+        "• `/clearstats`"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if not run_query("SELECT 1 FROM whitelist WHERE user_id = ?", (query.from_user.id,), fetch_one=True):
-        await query.answer("Access Denied.", show_alert=True)
+async def audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    data = run_query("SELECT u.full_name, u.user_id, COUNT(DISTINCT c.post_id), GROUP_CONCAT(DISTINCT c.post_id) FROM whitelist w LEFT JOIN users u ON w.user_id = u.user_id LEFT JOIN claims c ON w.user_id = c.user_id GROUP BY w.user_id ORDER BY COUNT(DISTINCT c.post_id) DESC", fetch_all=True)
+    res = ["📋 **PARTNER AUDIT**\n━━━━━━━━━━━━━━━"]
+    for n, uid, count, games in data:
+        res.append(f"👤 {n if n else 'Unknown'} (`{uid}`)\n└ {count} games: {games if games else 'None'}\n")
+    await update.message.reply_text("\n".join(res), parse_mode="Markdown")
+
+async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    rows = run_query("SELECT c.post_id, u.full_name, c.claimed_at FROM claims c JOIN users u ON c.user_id = u.user_id ORDER BY c.claimed_at DESC LIMIT 20", fetch_all=True)
+    res = ["📊 **LIVE REPORT**\n━━━━━━━━━━━━━━━"]
+    for pid, name, time in rows:
+        res.append(f"#{pid} | {name} | {time[11:16]}")
+    await update.message.reply_text("\n".join(res) if rows else "No activity.", parse_mode="Markdown")
+
+# --- CALLBACK ---
+async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not run_query("SELECT 1 FROM whitelist WHERE user_id = ?", (q.from_user.id,), fetch_one=True):
+        await q.answer("Access Denied.", show_alert=True)
         return
-    game_id = query.data.split("_")[1]
-    error = await deliver_game(query.from_user.id, game_id, context)
-    if error: await query.answer(error, show_alert=True)
-    else: await query.answer()
+    err = await deliver(q.from_user.id, q.data.split("_")[1], context)
+    if err: await q.answer(err, show_alert=True)
+    else: await q.answer()
 
 # --- MAIN ---
 def main():
     db_init()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("addme", add_me))
     app.add_handler(CommandHandler("send", send_game))
-    app.add_handler(CommandHandler("admin", lambda u, c: u.message.reply_text("⚙️ **ADMIN**\n/approve /remove /list /audit /clearstats")))
-    app.add_handler(CommandHandler("audit", audit_partners))
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CommandHandler("audit", audit))
+    app.add_handler(CommandHandler("report", report))
     app.add_handler(CommandHandler("approve", lambda u, c: run_query("INSERT OR IGNORE INTO whitelist (user_id) VALUES (?)", (int(c.args[0]),)) if c.args else None))
     app.add_handler(CommandHandler("remove", lambda u, c: run_query("DELETE FROM whitelist WHERE user_id = ?", (int(c.args[0]),)) if c.args else None))
     app.add_handler(CommandHandler("list", lambda u, c: u.message.reply_text("\n".join([f"• {r[0]} | {r[1]}" for r in run_query("SELECT w.user_id, u.full_name FROM whitelist w LEFT JOIN users u ON w.user_id = u.user_id", fetch_all=True)]) or "Empty")))
+    app.add_handler(CommandHandler("edit", lambda u, c: run_query("UPDATE posts SET tip_text = ? WHERE post_id = ?", (" ".join(c.args[1:]), c.args[0])) if len(c.args) >= 2 else None))
+    app.add_handler(CommandHandler("delete", lambda u, c: run_query("DELETE FROM posts WHERE post_id = ?", (c.args[0],)) if c.args else None))
+    app.add_handler(CommandHandler("setid", lambda u, c: run_query("UPDATE meta SET value = ? WHERE key = 'current_post_id'", (c.args[0],)) if c.args else None))
     app.add_handler(CommandHandler("clearstats", lambda u, c: run_query("DELETE FROM claims")))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_broadcast))
-    app.add_handler(CallbackQueryHandler(button_callback))
     
-    # Start background task manually
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo_broadcast))
+    app.add_handler(CallbackQueryHandler(callback))
+    
     loop = asyncio.get_event_loop()
     loop.create_task(start_expiry_monitor(app))
-    
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
