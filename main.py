@@ -30,7 +30,7 @@ def db_init():
     try: run_query("ALTER TABLE posts ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
     except: pass
 
-# --- BROADCASTER (PROFESSIONAL CHANNEL FORMAT) ---
+# --- BROADCASTER ---
 async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID or not update.message.photo: return
 
@@ -46,22 +46,58 @@ async def handle_photo_broadcast(update: Update, context: ContextTypes.DEFAULT_T
               (post_id, caption, photo_id, now_str))
 
     if CHANNEL_ID:
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Unlock Selection", callback_data=f"GET_{post_id}")]])
-        
-        # High-end Channel Format
+        # High-end Channel Format as discussed
         channel_msg = (
             f"🏆 **Game #{post_id}**\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"📍 Get the game at @RictaTerminalbot\n"
+            f"📍 Get the game at @Ricta_Terminal_bot\n"
             f"💎 For access dm @R1cta"
         )
         try:
-            await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=channel_msg, reply_markup=keyboard, parse_mode="Markdown")
+            await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=channel_msg, parse_mode="Markdown")
             await update.message.reply_text(f"Game #{post_id} Live.")
         except Exception as e:
             await update.message.reply_text(f"Error: {e}")
 
-# --- USER COMMANDS ---
+# --- PARTNER DATA RETRIEVAL (/send 10) ---
+async def send_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    u = update.effective_user
+    
+    # Check Whitelist
+    if not run_query("SELECT 1 FROM whitelist WHERE user_id = ?", (u.id,), fetch_one=True):
+        await update.message.reply_text("RICTA TERMINAL\nAccess restricted to approved partners.\n\nTo request access, use /addme.")
+        return
+
+    # Check for ID
+    if not context.args:
+        await update.message.reply_text("Usage: /send [game number] (Example: /send 10)")
+        return
+
+    game_id = context.args[0]
+    post = run_query("SELECT tip_text, photo_id, created_at FROM posts WHERE post_id = ?", (game_id,), fetch_one=True)
+    
+    if post:
+        # Expiry Check
+        created_dt = datetime.strptime(post[2], '%Y-%m-%d %H:%M:%S')
+        if datetime.now() > created_dt + timedelta(minutes=EXPIRY_MINUTES):
+            await update.message.reply_text(f"Game #{game_id} has expired.")
+            return
+
+        # Log Activity
+        run_query("INSERT OR IGNORE INTO claims (user_id, post_id, claimed_at) VALUES (?, ?, ?)", 
+                  (u.id, game_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+
+        # Clean Professional DM Format
+        dm_caption = (
+            f"Game #{game_id}\n\n"
+            f"Selection: {post[0]}\n\n"
+            f"dm @R1cta"
+        )
+        await context.bot.send_photo(chat_id=u.id, photo=post[1], caption=dm_caption)
+    else:
+        await update.message.reply_text(f"Game #{game_id} not found.")
+
+# --- ADMIN & USER COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     run_query("INSERT INTO users(user_id, full_name, username) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET full_name=excluded.full_name, username=excluded.username", (u.id, u.full_name, u.username))
@@ -74,7 +110,6 @@ async def add_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     await update.message.reply_text(f"Your ID: `{u.id}`\n\nSend this ID to @R1cta to request authorization.", parse_mode="Markdown")
 
-# --- ADMIN TOOLS ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     msg = (
@@ -104,16 +139,6 @@ async def remove_partner(update: Update, context: ContextTypes.DEFAULT_TYPE):
     run_query("DELETE FROM whitelist WHERE user_id = ?", (int(context.args[0]),))
     await update.message.reply_text(f"Partner {context.args[0]} Removed.")
 
-async def delete_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID or not context.args: return
-    run_query("DELETE FROM posts WHERE post_id = ?", (context.args[0],))
-    await update.message.reply_text(f"Post #{context.args[0]} deleted.")
-
-async def edit_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID or len(context.args) < 2: return
-    run_query("UPDATE posts SET tip_text = ? WHERE post_id = ?", (" ".join(context.args[1:]), context.args[0]))
-    await update.message.reply_text(f"Post #{context.args[0]} updated.")
-
 async def list_partners(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     rows = run_query("SELECT w.user_id, u.full_name, u.username FROM whitelist w LEFT JOIN users u ON w.user_id = u.user_id", fetch_all=True)
@@ -126,78 +151,6 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     res = "\n".join([f"#{r[0]} | {r[1]} | {r[3][11:16]}" for r in rows]) if rows else "No activity."
     await update.message.reply_text(f"Report:\n{res}")
 
-# --- CALLBACK (CLEAN DM FORMAT) ---
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    u_id = query.from_user.id
-    if not run_query("SELECT 1 FROM whitelist WHERE user_id = ?", (u_id,), fetch_one=True):
-        await query.answer("Access Denied. Contact @R1cta", show_alert=True)
-        return
-    
-    post_id = int(query.data.split("_")[1])
-    post = run_query("SELECT tip_text, photo_id, created_at FROM posts WHERE post_id = ?", (post_id,), fetch_one=True)
-    
-    if post:
-        created_dt = datetime.strptime(post[2], '%Y-%m-%d %H:%M:%S')
-        if datetime.now() > created_dt + timedelta(minutes=EXPIRY_MINUTES):
-            await query.answer("Selection Expired.", show_alert=True)
-            return
-        run_query("INSERT OR IGNORE INTO claims (user_id, post_id, claimed_at) VALUES (?, ?, ?)", (u_id, post_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-        await query.answer()
-        
-        # DM format: No emojis, very clean.
-        dm_caption = (
-            f"Game #{post_id}\n\n"
-            f"Selection: {post[0]}\n\n"
-            f"dm @R1cta"
-        )
-        await context.bot.send_photo(chat_id=u_id, photo=post[1], caption=dm_caption)
-
-
-
-# --- PARTNER DATA RETRIEVAL ---
-async def send_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    u = update.effective_user
-    
-    # 1. Access Check
-    if not run_query("SELECT 1 FROM whitelist WHERE user_id = ?", (u.id,), fetch_one=True):
-        await update.message.reply_text("Access restricted. Use /addme to request authorization.")
-        return
-
-    # 2. Argument Check (Did they provide a number?)
-    if not context.args:
-        await update.message.reply_text("Usage: `/send [number]` (e.g., `/send 15`)", parse_mode="Markdown")
-        return
-
-    game_id = context.args[0]
-    
-    # 3. Database Lookup
-    post = run_query("SELECT tip_text, photo_id, created_at FROM posts WHERE post_id = ?", (game_id,), fetch_one=True)
-    
-    if post:
-        # 4. Expiry Check (120 minutes)
-        created_dt = datetime.strptime(post[2], '%Y-%m-%d %H:%M:%S')
-        if datetime.now() > created_dt + timedelta(minutes=EXPIRY_MINUTES):
-            await update.message.reply_text(f"⌛ Game #{game_id} has expired.")
-            return
-
-        # 5. Log the Activity (for your /report)
-        run_query("INSERT OR IGNORE INTO claims (user_id, post_id, claimed_at) VALUES (?, ?, ?)", 
-                  (u.id, game_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-
-        # 6. Send Clean Professional Format
-        caption = (
-            f"Game #{game_id}\n\n"
-            f"Selection: {post[0]}\n\n"
-            f"Questions? dm @R1cta"
-        )
-        await context.bot.send_photo(chat_id=u.id, photo=post[1], caption=caption)
-    else:
-        await update.message.reply_text(f"❌ Game #{game_id} not found in database.")
-
-# --- REGISTRATION (Add this inside main() function) ---
-app.add_handler(CommandHandler("send", send_game))
-
 # --- MAIN ---
 def main():
     db_init()
@@ -206,27 +159,21 @@ def main():
     # User Commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("addme", add_me))
+    app.add_handler(CommandHandler("send", send_game)) # THE /send 10 FEATURE
     
-    # Admin - Control
+    # Admin Commands
     app.add_handler(CommandHandler("admin", admin_panel))
-    
-    # Admin - Partner Management
     app.add_handler(CommandHandler("approve", approve))
     app.add_handler(CommandHandler("remove", remove_partner))
     app.add_handler(CommandHandler("list", list_partners))
-    
-    # Admin - Game Management
-    app.add_handler(CommandHandler("edit", edit_post))
-    app.add_handler(CommandHandler("delete", delete_post))
-    app.add_handler(CommandHandler("setid", lambda u, c: run_query("UPDATE meta SET value = ? WHERE key = 'current_post_id'", (c.args[0],)) if c.args else None))
-    
-    # Admin - Stats
+    app.add_handler(CommandHandler("edit", lambda u, c: run_query("UPDATE posts SET tip_text = ? WHERE post_id = ?", (" ".join(c.args[1:]), c.args[0])) if len(c.args) >= 2 else None))
+    app.add_handler(CommandHandler("delete", lambda u, c: run_query("DELETE FROM posts WHERE post_id = ?", (c.args[0],)) if c.args else None))
     app.add_handler(CommandHandler("report", report))
     app.add_handler(CommandHandler("clearstats", lambda u, c: run_query("DELETE FROM claims")))
+    app.add_handler(CommandHandler("setid", lambda u, c: run_query("UPDATE meta SET value = ? WHERE key = 'current_post_id'", (c.args[0],)) if c.args else None))
     
-    # Media & Callbacks
+    # Broadcast Handler
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_broadcast))
-    app.add_handler(CallbackQueryHandler(button_callback))
     
     app.run_polling(drop_pending_updates=True)
 
